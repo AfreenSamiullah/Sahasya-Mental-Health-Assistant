@@ -5,12 +5,19 @@ import requests
 import json
 import joblib
 import pandas as pd
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "default-secret")
+
+# Database configuration
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost:5432/sahasya_db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
 # API Keys & Config
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -26,6 +33,15 @@ PREDICTION_LABELS = {
     4: "Severe Depression"
 }
 
+# User model for database
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    age = db.Column(db.Integer, nullable=True)
+    gender = db.Column(db.String(20), nullable=True)
+
 # === Routes ===
 
 @app.route('/')
@@ -36,14 +52,13 @@ def login():
 def login_submit():
     email = request.form.get('email')
     password = request.form.get('password')
-    users = session.get('users', {})
-    user = users.get(email)
 
-    if user and user['password'] == password:
-        session['user'] = email
-        session['name'] = user['name']
-        session['age'] = user['age']
-        session['gender'] = user['gender']
+    user = User.query.filter_by(email=email).first()
+    if user and check_password_hash(user.password, password):
+        session['user'] = user.email
+        session['name'] = user.name
+        session['age'] = user.age
+        session['gender'] = user.gender
         return redirect(url_for('about'))
 
     flash("Login failed: Invalid credentials.", "danger")
@@ -91,18 +106,16 @@ def register_submit():
         flash("Passwords do not match", "error")
         return redirect(url_for('register'))
 
-    users = session.get('users', {})
-    if email in users:
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user:
         flash("Email already registered", "error")
         return redirect(url_for('register'))
 
-    users[email] = {
-        'password': password,
-        'name': name,
-        'age': age,
-        'gender': gender
-    }
-    session['users'] = users
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+    new_user = User(email=email, password=hashed_password, name=name, age=age, gender=gender)
+    db.session.add(new_user)
+    db.session.commit()
+
     flash("Registration successful! Please login.", "success")
     return redirect(url_for('login'))
 
@@ -137,7 +150,7 @@ def s_analysis():
     
     if request.method == 'POST':
         answers = json.loads(request.form.get('answers'))
-        prediction = student_model.predict(pd.DataFrame([answers]))[0]
+        prediction = student_model.predict(pd.DataFrame([answers]))
         session['prediction'] = int(prediction)
         return redirect(url_for('result'))
     return render_template('s_analysis.html')
@@ -149,7 +162,7 @@ def wp_analysis():
     
     if request.method == 'POST':
         answers = json.loads(request.form.get('answers'))
-        prediction = working_model.predict(pd.DataFrame([answers]))[0]
+        prediction = working_model.predict(pd.DataFrame([answers]))
         session['prediction'] = int(prediction)
         return redirect(url_for('working_result'))
     return render_template('wp_analysis.html')
@@ -195,5 +208,6 @@ def get_chat_response(message):
     return response.json()['choices'][0]['message']['content']
 
 if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()  # Create tables if not exist
     app.run()
-
