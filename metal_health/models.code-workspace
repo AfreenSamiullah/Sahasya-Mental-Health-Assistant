@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "models",
+			"path": "../models"
+		},
+		{
+			"name": "metal_health",
+			"path": "."
+		}
+	],
+	"settings": {}
+}
