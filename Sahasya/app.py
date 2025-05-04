@@ -125,6 +125,16 @@ def start():
         return redirect(url_for('login'))
     return render_template('frontpage.html')
 
+@app.route('/demo_login')
+def demo_login():
+    # Set demo user session data
+    session['user'] = 'demo@wellness.com'
+    session['name'] = 'Demo User'
+    session['age'] = 25
+    session['gender'] = 'Other'
+    flash("Logged in as Demo User.", "info")
+    return redirect(url_for('about'))
+
 @app.route('/quiz_intro')
 def quiz_intro():
     if 'user' not in session:
